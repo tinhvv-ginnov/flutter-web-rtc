@@ -2,6 +2,7 @@ import 'dart:core';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_webrtc_demo/src/call_sample/login_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'src/call_sample/call_sample.dart';
@@ -43,7 +44,7 @@ class _MyAppState extends State<MyApp> {
           appBar: AppBar(
             title: Text('Ginnov'),
           ),
-          body: CallSample()),
+          body: LoginPage()),
     );
   }
 }

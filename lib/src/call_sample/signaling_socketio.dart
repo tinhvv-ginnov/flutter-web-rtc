@@ -1,18 +1,26 @@
 import 'dart:async';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:flutter_webrtc_demo/src/models/user.dart';
 import 'package:socket_io_client/socket_io_client.dart';
 
 import 'signaling.dart';
+import 'package:collection/collection.dart';
 
 class SignalingSocketIO {
-  SignalingSocketIO();
+
+  final String channelName;
+  final String userName;
+
+  SignalingSocketIO(this.channelName, this.userName);
 
   Socket? _socket;
   Map<String, Session> _sessions = {};
   MediaStream? _localStream;
   List<MediaStream> _remoteStreams = <MediaStream>[];
+  
+  List<User> callingUsers = [];
 
-  String me = '';
+  User? get me => callingUsers.firstWhereOrNull((element) => element.userName == userName);
 
   Function(SignalingState state)? onSignalingStateChange;
   Function(Session session, CallState state)? onCallStateChange;
@@ -29,14 +37,6 @@ class SignalingSocketIO {
   Map<String, dynamic> _iceServers = {
     'iceServers': [
       {'url': 'stun:stun.l.google.com:19302'},
-      /*
-       * turn server configuration example.
-      {
-        'url': 'turn:123.45.67.89:3478',
-        'username': 'change_to_real_user',
-        'credential': 'change_to_real_secret'
-      },
-      */
     ]
   };
 
@@ -59,6 +59,113 @@ class SignalingSocketIO {
     await _cleanSessions();
     _socket?.disconnect();
     _socket?.close();
+  }
+
+  Future<void> connect() async {
+    var url = 'https://test-socket-21.herokuapp.com/';
+    _socket = io(
+        url,
+        OptionBuilder()
+            .setTransports(['websocket']) // for Flutter or Dart VM
+            .disableAutoConnect() // disable auto-connection
+            .build());
+    _socket?.connect();
+
+    print('connect to $url');
+
+    _socket?.onConnect((_) async {
+      print('connect');
+      onSignalingStateChange?.call(SignalingState.ConnectionOpen);
+      _localStream = await createStream('video');
+      joinRoom();
+      getListUsers();
+    });
+
+    _socket?.onDisconnect((_) {
+      onSignalingStateChange?.call(SignalingState.ConnectionClosed);
+    });
+
+    _observer('receive-call', (p0) {
+
+    });
+    
+    _observer('receive-accepted', (p0) {
+      print('callAccepted: ${_getDataWrapper(p0).toString()}');
+      var signal = p0['signal'];
+      var sessionId = p0['answerId'];
+      Session? session = callingUsers.firstWhereOrNull((element) => element.userId == sessionId)?.session;
+      print('pc: ${session?.pc}');
+      session?.pc?.setRemoteDescription(
+          RTCSessionDescription(signal['sdp'], signal['type']));
+
+      onCallStateChange?.call(session!, CallState.CallStateNew);
+
+      _send("updateMyMedia", {
+        'type': "both",
+        'currentMediaStatus': [true, true],
+      });
+    });
+
+    _socket?.on('endCall', (data) async {
+      onCallStateChange?.call(
+          _sessions.values.toList().first, CallState.CallStateBye);
+      _sessions.forEach((key, value) {
+        _closeSession(value);
+      });
+      _sessions.clear();
+      _localStream = await createStream('video');
+    });
+
+    _socket?.on('callUser', (data) {
+      print('callUser: ${data['from']}');
+      final signal = data['signal'];
+      final type = signal['type'];
+
+      if (type == 'offer') {
+        onReceivedCall?.call(data);
+      }
+    });
+
+    _socket?.on("updateUserMedia", (data) {
+      final currentMediaStatus = data['currentMediaStatus'];
+      final type = data['type'];
+      print("updateUserMedia $data");
+      if (currentMediaStatus != null || currentMediaStatus != []) {
+        switch (type) {
+          case "video":
+            break;
+          case "mic":
+            break;
+          default:
+            break;
+        }
+      }
+    });
+  }
+
+  void joinRoom() {
+    _send('join-room', {'roomId': channelName, 'userName': userName});
+  }
+  
+  void getListUsers() {
+    _observer('list-user-join', (p0) {
+      final users = User.fromList(p0);
+      if (users.isEmpty) return;
+
+      final me = users.firstWhereOrNull((element) => element.userName == userName);
+      if (me != null && callingUsers.firstWhereOrNull((element) => element.userName == userName) == null) {
+        callingUsers.add(me);
+      }
+
+      users.forEach((user) {
+
+        // Skip existed user
+        if (callingUsers.firstWhereOrNull((element) => element.userName == user.userName) != null) return;
+
+        _createUserSession(user);
+        callingUsers.add(user);
+      });
+    });
   }
 
   void switchCamera() {
@@ -102,14 +209,15 @@ class SignalingSocketIO {
     onCallStateChange?.call(newSession, CallState.CallStateNew);
   }
 
-  void invite(String peerId, String name, String media, bool useScreen) async {
-    Session session = await _createSession(null,
-        peerId: peerId,
-        sessionId: peerId,
-        media: media,
-        screenSharing: useScreen);
-    _sessions[peerId] = session;
-    _createOffer(session, name);
+  void _createUserSession(User user) async {
+    final session = await _createSession(null,
+        peerId: user.id,
+        sessionId: user.id,
+        media: 'video',
+        screenSharing: false);
+    user.session = session;
+
+    _createOffer(session);
   }
 
   void bye(String sessionId) async {
@@ -121,88 +229,6 @@ class SignalingSocketIO {
     });
     _sessions.clear();
     _localStream = await createStream('video');
-  }
-
-  Future<void> connect() async {
-    var url = 'https://test-socket-21.herokuapp.com/';
-    _socket = io(
-        url,
-        OptionBuilder()
-            .setTransports(['websocket']) // for Flutter or Dart VM
-            .disableAutoConnect() // disable auto-connection
-            .build());
-    _socket?.connect();
-
-    print('connect to $url');
-
-    _socket?.onConnect((_) async {
-      print('connect');
-      onSignalingStateChange?.call(SignalingState.ConnectionOpen);
-      _localStream = await createStream('video');
-    });
-
-    _socket?.onDisconnect((_) {
-      onSignalingStateChange?.call(SignalingState.ConnectionClosed);
-    });
-
-    _socket?.on('me', (data) {
-      print('me: ${data.toString()}');
-      me = data;
-      onMe?.call(data);
-    });
-
-    _socket?.on('endCall', (data) async {
-      onCallStateChange?.call(
-          _sessions.values.toList().first, CallState.CallStateBye);
-      _sessions.forEach((key, value) {
-        _closeSession(value);
-      });
-      _sessions.clear();
-      _localStream = await createStream('video');
-    });
-
-    _socket?.on('callUser', (data) {
-      print('callUser: ${data['from']}');
-      final signal = data['signal'];
-      final type = signal['type'];
-
-      if (type == 'offer') {
-        onReceivedCall?.call(data);
-      }
-    });
-
-    _socket?.on('callAccepted', (data) {
-      print('callAccepted: ${_getDataWrapper(data).toString()}');
-      var signal = data['signal'];
-      var sessionId = data['sessionId'];
-      var session = _sessions[sessionId];
-      print('pc: ${session?.pc}');
-      session?.pc?.setRemoteDescription(
-          RTCSessionDescription(signal['sdp'], signal['type']));
-
-      onCallStateChange?.call(session!, CallState.CallStateNew);
-
-      _send("updateMyMedia", {
-        'type': "both",
-        'currentMediaStatus': [true, true],
-      });
-    });
-
-    _socket?.on("updateUserMedia", (data) {
-      final currentMediaStatus = data['currentMediaStatus'];
-      final type = data['type'];
-      print("updateUserMedia $data");
-      if (currentMediaStatus != null || currentMediaStatus != []) {
-        switch (type) {
-          case "video":
-            break;
-          case "mic":
-            break;
-          default:
-            break;
-        }
-      }
-    });
   }
 
   Future<MediaStream> createStream(String media) async {
@@ -288,15 +314,14 @@ class SignalingSocketIO {
     onDataChannel?.call(session, channel);
   }
 
-  Future<void> _createOffer(Session session, String name) async {
+  Future<void> _createOffer(Session session) async {
     try {
       RTCSessionDescription s = await session.pc!.createOffer({});
       await session.pc!.setLocalDescription(s);
-      _send('callUser', {
+      _send('call-user', {
         'userToCall': session.pid,
-        'from': me,
-        'signalData': {'sdp': s.sdp, 'type': s.type},
-        'name': name,
+        'from': me?.userId,
+        'signal': {'sdp': s.sdp, 'type': s.type},
       });
     } catch (e) {
       print(e.toString());
@@ -339,11 +364,18 @@ class SignalingSocketIO {
   }
 
   _send(event, data) {
-    print('=============>>>');
+    print('=======send======>>>');
     print('event: $event');
     print('data: ${_getDataWrapper(data).toString()}');
-    print('<<<=============');
     _socket?.emit(event, data);
+  }
+
+  _observer(String event, Function(dynamic) handler) {
+    _socket?.on(event, (data) {
+      print('<<<======received=======');
+      print('$event: ${data.toString()}');
+      handler(data);
+    });
   }
 
   Future<void> _cleanSessions() async {
