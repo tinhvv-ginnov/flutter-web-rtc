@@ -325,14 +325,10 @@ class SignalingSocketIO {
   }
 
   dynamic _getDataWrapper(dynamic data) {
-    if (data['signal'] != null || data['signalData'] != null) {
+    if (data is Map && data['signal'] != null) {
       var dataWrapped = Map.from(data);
       if (dataWrapped['signal'] != null) {
         dataWrapped['signal'] = dataWrapped['signal']['type'];
-      }
-
-      if (dataWrapped['signalData'] != null) {
-        dataWrapped['signalData'] = dataWrapped['signalData']['type'];
       }
 
       return dataWrapped;

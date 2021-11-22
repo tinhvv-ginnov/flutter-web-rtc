@@ -25,15 +25,15 @@ class _LoginPageState extends State<LoginPage> {
               height: 16,
             ),
             TextFormField(
-              controller: _nameController,
-              decoration: InputDecoration(hintText: 'Enter name'),
+              controller: _idController,
+              decoration: InputDecoration(hintText: 'Enter Channel name'),
             ),
             SizedBox(
               height: 16,
             ),
             TextFormField(
-              controller: _idController,
-              decoration: InputDecoration(hintText: 'Enter Channel name'),
+              controller: _nameController,
+              decoration: InputDecoration(hintText: 'Enter name'),
             ),
             SizedBox(
               height: 16,
