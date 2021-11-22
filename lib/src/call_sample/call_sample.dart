@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_webrtc_demo/src/call_sample/signaling_socketio.dart';
+import 'package:flutter_webrtc_demo/src/models/user.dart';
 import 'dart:core';
 import 'signaling.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
@@ -20,8 +21,7 @@ class _CallSampleState extends State<CallSample> {
   SignalingSocketIO? _signaling;
   String? meId;
   RTCVideoRenderer _localRenderer = RTCVideoRenderer();
-  RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
-  Session? _session;
+  Map<User, RTCVideoRenderer> _remoteRenderers = {};
 
   bool onMic = true;
   bool onCam = true;
@@ -38,7 +38,6 @@ class _CallSampleState extends State<CallSample> {
 
   initRenderers() async {
     await _localRenderer.initialize();
-    await _remoteRenderer.initialize();
   }
 
   @override
@@ -52,7 +51,7 @@ class _CallSampleState extends State<CallSample> {
     super.deactivate();
     _signaling?.close();
     _localRenderer.dispose();
-    _remoteRenderer.dispose();
+    _remoteRenderers.values.toList().forEach((element) {element.dispose();});
   }
 
   void _connect() async {
@@ -66,19 +65,15 @@ class _CallSampleState extends State<CallSample> {
       }
     };
 
-    _signaling?.onCallStateChange = (Session session, CallState state) {
+    _signaling?.onCallStateChange = (Session? session, CallState state) {
       switch (state) {
         case CallState.CallStateNew:
-          setState(() {
-            _session = session;
-          });
           break;
         case CallState.CallStateBye:
           setState(() {
             _localRenderer.srcObject = null;
-            _remoteRenderer.srcObject = null;
-            _session = null;
           });
+          Navigator.of(context).pop();
           break;
         case CallState.CallStateInvite:
         case CallState.CallStateConnected:
@@ -92,67 +87,28 @@ class _CallSampleState extends State<CallSample> {
       });
     });
 
-    _signaling?.onAddRemoteStream = ((_, stream) {
+    _signaling?.onCallingUser = ((user) async {
+      final _renderer = RTCVideoRenderer();
+      await _renderer.initialize();
+      _remoteRenderers[user] = _renderer;
+    });
+
+    _signaling?.onAddRemoteStream = ((user, stream) {
       setState(() {
-        print('remote stream: $stream');
-        _remoteRenderer.srcObject = stream;
+        _remoteRenderers[user]?.srcObject = stream;
       });
     });
 
-    _signaling?.onRemoveRemoteStream = ((_, stream) {
+    _signaling?.onRemoveRemoteStream = ((user, stream) {
       setState(() {
-        _remoteRenderer.srcObject = null;
+        _remoteRenderers[user]?.srcObject = null;
       });
     });
 
-    _signaling?.onMe = ((me) {
-      setState(() {
-        meId = me;
-      });
-    });
-
-    _signaling?.onReceivedCall = ((data) {
-      _showMyDialog(data);
-    });
-  }
-
-  Future<void> _showMyDialog(dynamic data) async {
-    return showDialog<void>(
-      context: context,
-      barrierDismissible: false, // user must tap button!
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Calling...'),
-          content: Text('You receiving a call from ${data['name']}'),
-          actions: <Widget>[
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(primary: Colors.red),
-              child: const Text('Reject'),
-              onPressed: () {
-                Navigator.of(context).pop();
-              },
-            ),
-            TextButton(
-              style: ElevatedButton.styleFrom(primary: Colors.blue),
-              child: const Text(
-                'Accept',
-                style: TextStyle(color: Colors.white),
-              ),
-              onPressed: () {
-                Navigator.of(context).pop();
-                _signaling?.acceptCall(data);
-              },
-            ),
-          ],
-        );
-      },
-    );
   }
 
   _hangUp() {
-    if (_session != null) {
-      _signaling?.bye(_session!.sid);
-    }
+    _signaling?.bye();
   }
 
   _switchCamera() {
@@ -183,49 +139,107 @@ class _CallSampleState extends State<CallSample> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: <Widget>[
                     FloatingActionButton(
-                      key: Key('cam'),
+                      heroTag: Key('cam'),
                       child: Icon(onCam ? Icons.videocam : Icons.videocam_off),
                       onPressed: _changeCam,
                     ),
                     FloatingActionButton(
-                      key: Key('end'),
+                      heroTag: Key('end'),
                       onPressed: _hangUp,
                       tooltip: 'Hangup',
                       child: Icon(Icons.call_end),
                       backgroundColor: Colors.pink,
                     ),
                     FloatingActionButton(
-                      key: Key('mic'),
+                      heroTag: Key('mic'),
                       child: Icon(onMic ? Icons.mic : Icons.mic_off),
                       onPressed: _changeMic,
                     )
                   ])),
-      body: Container(
-        child: Stack(children: <Widget>[
-          Positioned(
-              left: 0.0,
-              right: 0.0,
-              top: 0.0,
-              bottom: 0.0,
-              child: Container(
-                margin: EdgeInsets.fromLTRB(0.0, 0.0, 0.0, 0.0),
-                width: MediaQuery.of(context).size.width,
-                height: MediaQuery.of(context).size.height,
-                child: RTCVideoView(_remoteRenderer),
-                decoration: BoxDecoration(color: Colors.black54),
-              )),
-          Positioned(
-            left: 20.0,
-            top: 20.0,
-            child: Container(
-              width: 90.0,
-              height: 120.0,
-              child: RTCVideoView(_localRenderer, mirror: true),
-              decoration: BoxDecoration(color: Colors.black54),
-            ),
-          ),
-        ]),
+      body: SafeArea(
+        child: _contentView(),
       ),
+    );
+  }
+
+  Widget _contentView() {
+    switch (_remoteRenderers.values.length) {
+      case 1:
+        return _twoUsersView();
+      case 2:
+        return _threeUsersView();
+      case 3:
+        return _fourUsersView();
+      case 4:
+        return _fiveUsersView();
+      default:
+        return _onlyMeView();
+    }
+  }
+
+  Widget _onlyMeView() {
+    return Column(
+      children: [
+        Expanded(child: RTCVideoView(_localRenderer)),
+      ],
+    );
+  }
+
+  Widget _twoUsersView() {
+    return Column(
+      children: [
+        Expanded(child: RTCVideoView(_localRenderer)),
+        Expanded(child: RTCVideoView(_remoteRenderers.values.first))
+      ],
+    );
+  }
+
+  Widget _threeUsersView() {
+    return Column(
+      children: [
+        Expanded(child: RTCVideoView(_localRenderer)),
+        Expanded(child: RTCVideoView(_remoteRenderers.values.first)),
+        Expanded(child: RTCVideoView(_remoteRenderers.values.toList()[1]))
+      ],
+    );
+  }
+
+  Widget _fourUsersView() {
+    return Column(
+      children: [
+        Expanded(child: Row(
+          children: [
+            Expanded(child: RTCVideoView(_localRenderer)),
+            Expanded(child: RTCVideoView(_remoteRenderers.values.first)),
+          ],
+        )),
+        Expanded(child: Row(
+          children: [
+            Expanded(child: RTCVideoView(_remoteRenderers.values.toList()[1])),
+            Expanded(child: RTCVideoView(_remoteRenderers.values.toList()[2]))
+          ],
+        )),
+      ],
+    );
+  }
+
+  Widget _fiveUsersView() {
+    return Column(
+      children: [
+        Expanded(child: Row(
+          children: [
+            Expanded(child: RTCVideoView(_localRenderer)),
+            Expanded(child: RTCVideoView(_remoteRenderers.values.first)),
+          ],
+        )),
+        Expanded(child: Row(
+          children: [
+            Expanded(child: RTCVideoView(_remoteRenderers.values.toList()[1])),
+            Expanded(child: RTCVideoView(_remoteRenderers.values.toList()[2])),
+            Expanded(child: RTCVideoView(_remoteRenderers.values.toList()[3]))
+          ],
+        )),
+      ],
     );
   }
 }

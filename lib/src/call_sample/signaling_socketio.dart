@@ -23,12 +23,14 @@ class SignalingSocketIO {
   User? get me => callingUsers.firstWhereOrNull((element) => element.userName == userName);
 
   Function(SignalingState state)? onSignalingStateChange;
-  Function(Session session, CallState state)? onCallStateChange;
+  Function(Session? session, CallState state)? onCallStateChange;
+  Function(User user)? onCallingUser;
+  Function(User user)? onUserLeft;
   Function(String me)? onMe;
   Function(dynamic data)? onReceivedCall;
   Function(MediaStream stream)? onLocalStream;
-  Function(Session session, MediaStream stream)? onAddRemoteStream;
-  Function(Session session, MediaStream stream)? onRemoveRemoteStream;
+  Function(User user, MediaStream stream)? onAddRemoteStream;
+  Function(User user, MediaStream stream)? onRemoveRemoteStream;
   Function(dynamic event)? onPeersUpdate;
   Function(Session session, RTCDataChannel dc, RTCDataChannelMessage data)?
       onDataChannelMessage;
@@ -85,8 +87,24 @@ class SignalingSocketIO {
       onSignalingStateChange?.call(SignalingState.ConnectionClosed);
     });
 
-    _observer('receive-call', (p0) {
+    _observer('receive-call', (p0) async {
+      final signal = p0['signal'];
+      final from = p0['from'];
+      final user = User.fromJson(p0);
+      user.userId = from;
 
+      onCallingUser?.call(user);
+
+      var newSession = await _createSession(user,
+          peerId: from,
+          sessionId: from,
+          media: 'video',
+          screenSharing: false);
+      user.session = newSession;
+      await newSession.pc?.setRemoteDescription(
+          RTCSessionDescription(signal['sdp'], signal['type']));
+      await _createAnswer(user);
+      callingUsers.add(user);
     });
     
     _observer('receive-accepted', (p0) {
@@ -99,12 +117,20 @@ class SignalingSocketIO {
           RTCSessionDescription(signal['sdp'], signal['type']));
 
       onCallStateChange?.call(session!, CallState.CallStateNew);
-
-      _send("updateMyMedia", {
-        'type': "both",
-        'currentMediaStatus': [true, true],
-      });
     });
+
+    _observer('receive-user-leave', (p0) {
+      final userId = p0['userId'];
+      final userName = p0['userName'];
+
+      final user = callingUsers.firstWhereOrNull((element) => element.userName == userName);
+      onUserLeft?.call(user!);
+      if (user?.session != null) {
+        _closeSession(user!.session!);
+      }
+    });
+
+
 
     _socket?.on('endCall', (data) async {
       onCallStateChange?.call(
@@ -186,49 +212,24 @@ class SignalingSocketIO {
     }
   }
 
-  void acceptCall(dynamic data) async {
-    var peerId = data['from'];
-    var description = data['signal'];
-    var sessionId = data['from'];
-    var session = _sessions[sessionId];
-    var newSession = await _createSession(session,
-        peerId: peerId,
-        sessionId: sessionId,
-        media: 'video',
-        screenSharing: false);
-    _sessions[sessionId] = newSession;
-    await newSession.pc?.setRemoteDescription(
-        RTCSessionDescription(description['sdp'], description['type']));
-    await _createAnswer(newSession, '1234');
-    if (newSession.remoteCandidates.length > 0) {
-      newSession.remoteCandidates.forEach((candidate) async {
-        await newSession.pc?.addCandidate(candidate);
-      });
-      newSession.remoteCandidates.clear();
-    }
-    onCallStateChange?.call(newSession, CallState.CallStateNew);
-  }
-
   void _createUserSession(User user) async {
-    final session = await _createSession(null,
+    final session = await _createSession(user,
         peerId: user.id,
         sessionId: user.id,
         media: 'video',
         screenSharing: false);
     user.session = session;
-
+    onCallingUser?.call(user);
     _createOffer(session);
   }
 
-  void bye(String sessionId) async {
-    _send('endCall', {'id': sessionId});
-    onCallStateChange?.call(
-        _sessions.values.toList().first, CallState.CallStateBye);
-    _sessions.forEach((key, value) {
-      _closeSession(value);
+  void bye() async {
+    _send('call-user-leave', {'roomId': channelName, 'leaver': me?.userId});
+    onCallStateChange?.call(null, CallState.CallStateBye);
+    callingUsers.map((e) => e.session).toList().forEach((value) {
+      _closeSession(value!);
     });
-    _sessions.clear();
-    _localStream = await createStream('video');
+    callingUsers.clear();
   }
 
   Future<MediaStream> createStream(String media) async {
@@ -256,12 +257,12 @@ class SignalingSocketIO {
     return stream;
   }
 
-  Future<Session> _createSession(Session? session,
+  Future<Session> _createSession(User user,
       {required String peerId,
       required String sessionId,
       required String media,
       required bool screenSharing}) async {
-    var newSession = session ?? Session(sid: sessionId, pid: peerId);
+    var newSession = user.session ?? Session(sid: sessionId, pid: peerId);
     _localStream = await createStream('video');
     print(_iceServers);
     RTCPeerConnection pc = await createPeerConnection({
@@ -272,7 +273,7 @@ class SignalingSocketIO {
     pc.onTrack = (event) {
       if (event.track.kind == 'video') {
         print('onTrackVideo: ${event.streams[0]}');
-        onAddRemoteStream?.call(newSession, event.streams[0]);
+        onAddRemoteStream?.call(user, event.streams[0]);
       } else if (event.track.kind == 'audio') {
         print('onTrackAudio: ${event.streams[0]}');
       }
@@ -291,7 +292,7 @@ class SignalingSocketIO {
     pc.onIceConnectionState = (state) {};
 
     pc.onRemoveStream = (stream) {
-      onRemoveRemoteStream?.call(newSession, stream);
+      onRemoveRemoteStream?.call(user, stream);
       _remoteStreams.removeWhere((it) {
         return (it.id == stream.id);
       });
@@ -328,19 +329,13 @@ class SignalingSocketIO {
     }
   }
 
-  Future<void> _createAnswer(Session session, String name) async {
+  Future<void> _createAnswer(User user) async {
     try {
-      RTCSessionDescription s = await session.pc!.createAnswer({});
-      await session.pc!.setLocalDescription(s);
+      RTCSessionDescription s = await user.session!.pc!.createAnswer({});
+      await user.session!.pc!.setLocalDescription(s);
 
-      _send("answerCall", {
-        'signal': {'sdp': s.sdp, 'type': s.type},
-        'to': session.pid,
-        'userName': name,
-        'sessionId': session.pid,
-        'type': "both",
-        'myMediaStatus': [true, true],
-      });
+      _send('accepted-call', {'signal': {'sdp': s.sdp, 'type': s.type}, 'to': user.userId});
+
     } catch (e) {
       print(e.toString());
     }
@@ -373,7 +368,7 @@ class SignalingSocketIO {
   _observer(String event, Function(dynamic) handler) {
     _socket?.on(event, (data) {
       print('<<<======received=======');
-      print('$event: ${data.toString()}');
+      print('$event: ${_getDataWrapper(data).toString()}');
       handler(data);
     });
   }

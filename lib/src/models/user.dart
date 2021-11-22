@@ -12,7 +12,8 @@ class User {
   String get id => userId ?? '';
 
   User.fromJson(dynamic json) {
-    userId = json['userId'];
+    if (json['userId'] != null) userId = json['userId'];
+    if (json['from'] != null) userId = json['from'];
     final info = json['info'];
 
     userName = info['userName'];
