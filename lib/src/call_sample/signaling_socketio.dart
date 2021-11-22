@@ -119,52 +119,29 @@ class SignalingSocketIO {
       onCallStateChange?.call(session!, CallState.CallStateNew);
     });
 
-    _observer('receive-user-leave', (p0) {
+    _observer('receive-user-leave', (p0) async {
       final userId = p0['userId'];
-      final userName = p0['userName'];
 
-      final user = callingUsers.firstWhereOrNull((element) => element.userName == userName);
-      onUserLeft?.call(user!);
-      if (user?.session != null) {
-        _closeSession(user!.session!);
+      final user = callingUsers.firstWhereOrNull((element) => element.userId == userId);
+      if (user == null) return;
+      onUserLeft?.call(user);
+      if (user.session != null) {
+        _closeSession(user.session!);
       }
-    });
-
-
-
-    _socket?.on('endCall', (data) async {
-      onCallStateChange?.call(
-          _sessions.values.toList().first, CallState.CallStateBye);
-      _sessions.forEach((key, value) {
-        _closeSession(value);
-      });
-      _sessions.clear();
+      user.dispose();
+      callingUsers.remove(user);
       _localStream = await createStream('video');
     });
 
-    _socket?.on('callUser', (data) {
-      print('callUser: ${data['from']}');
-      final signal = data['signal'];
-      final type = signal['type'];
-
-      if (type == 'offer') {
-        onReceivedCall?.call(data);
-      }
-    });
-
-    _socket?.on("updateUserMedia", (data) {
-      final currentMediaStatus = data['currentMediaStatus'];
-      final type = data['type'];
-      print("updateUserMedia $data");
-      if (currentMediaStatus != null || currentMediaStatus != []) {
-        switch (type) {
-          case "video":
-            break;
-          case "mic":
-            break;
-          default:
-            break;
-        }
+    _observer('receive-toggle-camera-audio', (p0) {
+      final userId = p0['userId'];
+      final switchTarget = p0['switchTarget'];
+      final user = callingUsers.firstWhereOrNull((element) => element.userId == userId);
+      if (user == null) return;
+      if (switchTarget == 'video') {
+        user.changeVideoState(!user.video);
+      } else {
+        user.changeAudioState(!user.audio);
       }
     });
   }
@@ -194,6 +171,10 @@ class SignalingSocketIO {
     });
   }
 
+  void _toggleMedia(bool video) {
+    _send('call-toggle-camera-audio', {'roomId': channelName, 'switchTarget': video ? 'video' : 'audio'});
+  }
+
   void switchCamera() {
     if (_localStream != null) {
       Helper.switchCamera(_localStream!.getVideoTracks()[0]);
@@ -203,12 +184,14 @@ class SignalingSocketIO {
   void changeMicStatus(bool status) {
     if (_localStream != null) {
       _localStream!.getAudioTracks()[0].enabled = status;
+      _toggleMedia(false);
     }
   }
 
   void changeCamStatus(bool status) {
     if (_localStream != null) {
       _localStream!.getVideoTracks()[0].enabled = status;
+      _toggleMedia(true);
     }
   }
 

@@ -7,7 +7,6 @@ import 'signaling.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 class CallSample extends StatefulWidget {
-
   final String channelName;
   final String userName;
 
@@ -43,6 +42,10 @@ class _CallSampleState extends State<CallSample> {
   @override
   void dispose() {
     _signaling?.close();
+    _localRenderer.dispose();
+    _remoteRenderers.values.toList().forEach((element) {
+      element.dispose();
+    });
     super.dispose();
   }
 
@@ -51,11 +54,14 @@ class _CallSampleState extends State<CallSample> {
     super.deactivate();
     _signaling?.close();
     _localRenderer.dispose();
-    _remoteRenderers.values.toList().forEach((element) {element.dispose();});
+    _remoteRenderers.values.toList().forEach((element) {
+      element.dispose();
+    });
   }
 
   void _connect() async {
-    _signaling ??= SignalingSocketIO(widget.channelName, widget.userName)..connect();
+    _signaling ??= SignalingSocketIO(widget.channelName, widget.userName)
+      ..connect();
     _signaling?.onSignalingStateChange = (SignalingState state) {
       switch (state) {
         case SignalingState.ConnectionClosed:
@@ -93,6 +99,13 @@ class _CallSampleState extends State<CallSample> {
       _remoteRenderers[user] = _renderer;
     });
 
+    _signaling?.onUserLeft = ((user) async {
+      _remoteRenderers[user]?.dispose();
+      setState(() {
+        _remoteRenderers.remove(user);
+      });
+    });
+
     _signaling?.onAddRemoteStream = ((user, stream) {
       setState(() {
         _remoteRenderers[user]?.srcObject = stream;
@@ -104,7 +117,6 @@ class _CallSampleState extends State<CallSample> {
         _remoteRenderers[user]?.srcObject = null;
       });
     });
-
   }
 
   _hangUp() {
@@ -134,29 +146,30 @@ class _CallSampleState extends State<CallSample> {
     return Scaffold(
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
       floatingActionButton: SizedBox(
-              width: 200.0,
-              child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: <Widget>[
-                    FloatingActionButton(
-                      heroTag: Key('cam'),
-                      child: Icon(onCam ? Icons.videocam : Icons.videocam_off),
-                      onPressed: _changeCam,
-                    ),
-                    FloatingActionButton(
-                      heroTag: Key('end'),
-                      onPressed: _hangUp,
-                      tooltip: 'Hangup',
-                      child: Icon(Icons.call_end),
-                      backgroundColor: Colors.pink,
-                    ),
-                    FloatingActionButton(
-                      heroTag: Key('mic'),
-                      child: Icon(onMic ? Icons.mic : Icons.mic_off),
-                      onPressed: _changeMic,
-                    )
-                  ])),
-      body: SafeArea(
+          width: 200.0,
+          child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: <Widget>[
+                FloatingActionButton(
+                  heroTag: Key('cam'),
+                  child: Icon(onCam ? Icons.videocam : Icons.videocam_off),
+                  onPressed: _changeCam,
+                ),
+                FloatingActionButton(
+                  heroTag: Key('end'),
+                  onPressed: _hangUp,
+                  tooltip: 'Hangup',
+                  child: Icon(Icons.call_end),
+                  backgroundColor: Colors.pink,
+                ),
+                FloatingActionButton(
+                  heroTag: Key('mic'),
+                  child: Icon(onMic ? Icons.mic : Icons.mic_off),
+                  onPressed: _changeMic,
+                )
+              ])),
+      body: Container(
+        padding: EdgeInsets.only(bottom: 80, top: 20),
         child: _contentView(),
       ),
     );
@@ -189,7 +202,7 @@ class _CallSampleState extends State<CallSample> {
     return Column(
       children: [
         Expanded(child: RTCVideoView(_localRenderer)),
-        Expanded(child: RTCVideoView(_remoteRenderers.values.first))
+        Expanded(child: _videoView(_remoteRenderers.keys.first))
       ],
     );
   }
@@ -198,8 +211,8 @@ class _CallSampleState extends State<CallSample> {
     return Column(
       children: [
         Expanded(child: RTCVideoView(_localRenderer)),
-        Expanded(child: RTCVideoView(_remoteRenderers.values.first)),
-        Expanded(child: RTCVideoView(_remoteRenderers.values.toList()[1]))
+        Expanded(child: _videoView(_remoteRenderers.keys.first)),
+        Expanded(child: _videoView(_remoteRenderers.keys.toList()[1]))
       ],
     );
   }
@@ -207,16 +220,18 @@ class _CallSampleState extends State<CallSample> {
   Widget _fourUsersView() {
     return Column(
       children: [
-        Expanded(child: Row(
+        Expanded(
+            child: Row(
           children: [
             Expanded(child: RTCVideoView(_localRenderer)),
-            Expanded(child: RTCVideoView(_remoteRenderers.values.first)),
+            Expanded(child: _videoView(_remoteRenderers.keys.first)),
           ],
         )),
-        Expanded(child: Row(
+        Expanded(
+            child: Row(
           children: [
-            Expanded(child: RTCVideoView(_remoteRenderers.values.toList()[1])),
-            Expanded(child: RTCVideoView(_remoteRenderers.values.toList()[2]))
+            Expanded(child: _videoView(_remoteRenderers.keys.toList()[1])),
+            Expanded(child: _videoView(_remoteRenderers.keys.toList()[2]))
           ],
         )),
       ],
@@ -226,19 +241,91 @@ class _CallSampleState extends State<CallSample> {
   Widget _fiveUsersView() {
     return Column(
       children: [
-        Expanded(child: Row(
+        Expanded(
+            child: Row(
           children: [
             Expanded(child: RTCVideoView(_localRenderer)),
-            Expanded(child: RTCVideoView(_remoteRenderers.values.first)),
+            Expanded(child: _videoView(_remoteRenderers.keys.first)),
           ],
         )),
-        Expanded(child: Row(
+        Expanded(
+            child: Row(
           children: [
-            Expanded(child: RTCVideoView(_remoteRenderers.values.toList()[1])),
-            Expanded(child: RTCVideoView(_remoteRenderers.values.toList()[2])),
-            Expanded(child: RTCVideoView(_remoteRenderers.values.toList()[3]))
+            Expanded(child: _videoView(_remoteRenderers.keys.toList()[1])),
+            Expanded(child: _videoView(_remoteRenderers.keys.toList()[2])),
+            Expanded(child: _videoView(_remoteRenderers.keys.toList()[3]))
           ],
         )),
+      ],
+    );
+  }
+
+  Widget _videoView(User user) {
+    final renderer = _remoteRenderers[user];
+    if (renderer == null) return SizedBox();
+    return Stack(
+      children: [
+        RTCVideoView(renderer),
+        Align(
+          alignment: Alignment.topCenter,
+          child: Padding(
+            padding: EdgeInsets.all(8),
+            child: Text(user.userName ?? '', style: TextStyle(fontSize: 20),),
+          ),
+        ),
+        Align(
+          alignment: Alignment.bottomLeft,
+          child: Padding(
+            padding: EdgeInsets.all(4),
+            child: Row(
+              children: [
+                Container(
+                  width: 30,
+                  height: 30,
+                  decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.all(Radius.circular(3))
+                  ),
+                  child: StreamBuilder(
+                    stream: user.audioStream,
+                    builder: (context, snapshot) {
+                      var data = user.audio;
+                      if (snapshot.hasData) data = snapshot.data as bool;
+                      if (data) {
+                        return Icon(Icons.mic, color: Colors.green,);
+                      } else {
+                        return Icon(Icons.mic_off, color: Colors.red,);
+                      }
+                    },
+                  ),
+                ),
+                SizedBox(
+                  width: 8,
+                ),
+                Container(
+                  width: 30,
+                  height: 30,
+                  decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.all(Radius.circular(3))
+                  ),
+                  child: StreamBuilder(
+                    stream: user.videoStream,
+                    builder: (context, snapshot) {
+                      var data = user.video;
+                      if (snapshot.hasData) data = snapshot.data as bool;
+                      if (data) {
+                        return Icon(Icons.videocam, color: Colors.green,);
+                      } else {
+                        return Icon(Icons.videocam_off, color: Colors.red,);
+                      }
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        )
       ],
     );
   }
