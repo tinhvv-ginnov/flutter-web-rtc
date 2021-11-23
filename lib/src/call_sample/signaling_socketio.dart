@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:flutter_webrtc_demo/src/models/user.dart';
+import 'package:flutter_webrtc_demo/src/utils/turn.dart';
 import 'package:socket_io_client/socket_io_client.dart';
 
 import 'signaling.dart';
@@ -38,7 +39,15 @@ class SignalingSocketIO {
 
   Map<String, dynamic> _iceServers = {
     'iceServers': [
-      {'url': 'stun:stun.l.google.com:19302'},
+      {"username":"rIm7AtU8_xc9lfMdKzOPsK86zS4DQHopKv34ctw_nl2xdDB5p1Tbc-Nv9u9kqUQRAAAAAGGcQel0aW5odnY=",
+        "urls":["stun:hk-turn1.xirsys.com",
+          "turn:hk-turn1.xirsys.com:80?transport=udp",
+          "turn:hk-turn1.xirsys.com:3478?transport=udp",
+          "turn:hk-turn1.xirsys.com:80?transport=tcp",
+          "turn:hk-turn1.xirsys.com:3478?transport=tcp",
+          "turns:hk-turn1.xirsys.com:443?transport=tcp",
+          "turns:hk-turn1.xirsys.com:5349?transport=tcp"],
+        "credential":"92be4386-4bfb-11ec-8d82-0242ac120004"}
     ]
   };
 
@@ -108,7 +117,6 @@ class SignalingSocketIO {
     });
     
     _observer('receive-accepted', (p0) {
-      print('callAccepted: ${_getDataWrapper(p0).toString()}');
       var signal = p0['signal'];
       var sessionId = p0['answerId'];
       Session? session = callingUsers.firstWhereOrNull((element) => element.userId == sessionId)?.session;
@@ -209,8 +217,11 @@ class SignalingSocketIO {
   void bye() async {
     _send('call-user-leave', {'roomId': channelName, 'leaver': me?.userId});
     onCallStateChange?.call(null, CallState.CallStateBye);
-    callingUsers.map((e) => e.session).toList().forEach((value) {
-      _closeSession(value!);
+    callingUsers.forEach((value) {
+      value.dispose();
+      if (value.session != null) {
+        _closeSession(value.session!);
+      }
     });
     callingUsers.clear();
   }

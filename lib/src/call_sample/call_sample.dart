@@ -18,15 +18,13 @@ class CallSample extends StatefulWidget {
 
 class _CallSampleState extends State<CallSample> {
   SignalingSocketIO? _signaling;
-  String? meId;
   RTCVideoRenderer _localRenderer = RTCVideoRenderer();
   Map<User, RTCVideoRenderer> _remoteRenderers = {};
 
   bool onMic = true;
   bool onCam = true;
 
-  // ignore: unused_element
-  _CallSampleState();
+  bool _disposed = false;
 
   @override
   initState() {
@@ -41,21 +39,17 @@ class _CallSampleState extends State<CallSample> {
 
   @override
   void dispose() {
-    _signaling?.close();
-    _localRenderer.dispose();
-    _remoteRenderers.values.toList().forEach((element) {
-      element.dispose();
-    });
+    _disposed = true;
+    _dispose();
     super.dispose();
   }
 
-  @override
-  deactivate() {
-    super.deactivate();
-    _signaling?.close();
-    _localRenderer.dispose();
-    _remoteRenderers.values.toList().forEach((element) {
-      element.dispose();
+  _dispose() async {
+    print('==> dispose');
+    await _signaling?.close();
+    await _localRenderer.dispose();
+    _remoteRenderers.values.toList().forEach((element) async {
+      await element.dispose();
     });
   }
 
@@ -176,6 +170,7 @@ class _CallSampleState extends State<CallSample> {
   }
 
   Widget _contentView() {
+    if (_disposed) return SizedBox();
     switch (_remoteRenderers.values.length) {
       case 1:
         return _twoUsersView();
