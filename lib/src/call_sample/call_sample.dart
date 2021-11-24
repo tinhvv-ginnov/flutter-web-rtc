@@ -203,30 +203,32 @@ class _CallSampleState extends State<CallSample> {
   }
 
   Widget _threeUsersView() {
+    final users = _remoteRenderers.keys.toList();
     return Column(
       children: [
         Expanded(child: RTCVideoView(_localRenderer)),
-        Expanded(child: _videoView(_remoteRenderers.keys.first)),
-        Expanded(child: _videoView(_remoteRenderers.keys.toList()[1]))
+        Expanded(child: _videoView(users.first)),
+        Expanded(child: _videoView(users[1]))
       ],
     );
   }
 
   Widget _fourUsersView() {
+    final users = _remoteRenderers.keys.toList();
     return Column(
       children: [
         Expanded(
             child: Row(
           children: [
             Expanded(child: RTCVideoView(_localRenderer)),
-            Expanded(child: _videoView(_remoteRenderers.keys.first)),
+            Expanded(child: _videoView(users.first)),
           ],
         )),
         Expanded(
             child: Row(
           children: [
-            Expanded(child: _videoView(_remoteRenderers.keys.toList()[1])),
-            Expanded(child: _videoView(_remoteRenderers.keys.toList()[2]))
+            Expanded(child: _videoView(users[1])),
+            Expanded(child: _videoView(users[2]))
           ],
         )),
       ],
@@ -234,21 +236,22 @@ class _CallSampleState extends State<CallSample> {
   }
 
   Widget _fiveUsersView() {
+    final users = _remoteRenderers.keys.toList();
     return Column(
       children: [
         Expanded(
             child: Row(
           children: [
             Expanded(child: RTCVideoView(_localRenderer)),
-            Expanded(child: _videoView(_remoteRenderers.keys.first)),
+            Expanded(child: _videoView(users.first)),
           ],
         )),
         Expanded(
             child: Row(
           children: [
-            Expanded(child: _videoView(_remoteRenderers.keys.toList()[1])),
-            Expanded(child: _videoView(_remoteRenderers.keys.toList()[2])),
-            Expanded(child: _videoView(_remoteRenderers.keys.toList()[3]))
+            Expanded(child: _videoView(users[1])),
+            Expanded(child: _videoView(users[2])),
+            Expanded(child: _videoView(users[3]))
           ],
         )),
       ],
@@ -256,6 +259,7 @@ class _CallSampleState extends State<CallSample> {
   }
 
   Widget _videoView(User user) {
+    if (!user.active) return SizedBox();
     final renderer = _remoteRenderers[user];
     if (renderer == null) return SizedBox();
     return Stack(

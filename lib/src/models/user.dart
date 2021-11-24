@@ -9,6 +9,8 @@ class User {
   bool video = true;
   bool audio = true;
 
+  bool active = true;
+
   Session? session;
 
   String get id => userId ?? '';
@@ -57,5 +59,6 @@ class User {
   dispose() {
     _audioStream.close();
     _videoStream.close();
+    active = false;
   }
 }
