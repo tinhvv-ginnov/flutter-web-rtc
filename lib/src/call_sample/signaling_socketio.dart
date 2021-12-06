@@ -8,7 +8,6 @@ import 'signaling.dart';
 import 'package:collection/collection.dart';
 
 class SignalingSocketIO {
-
   final String channelName;
   final String userName;
 
@@ -18,10 +17,11 @@ class SignalingSocketIO {
   Map<String, Session> _sessions = {};
   MediaStream? _localStream;
   List<MediaStream> _remoteStreams = <MediaStream>[];
-  
+
   List<User> callingUsers = [];
 
-  User? get me => callingUsers.firstWhereOrNull((element) => element.userName == userName);
+  User? get me =>
+      callingUsers.firstWhereOrNull((element) => element.userName == userName);
 
   Function(SignalingState state)? onSignalingStateChange;
   Function(Session? session, CallState state)? onCallStateChange;
@@ -39,15 +39,7 @@ class SignalingSocketIO {
 
   Map<String, dynamic> _iceServers = {
     'iceServers': [
-      {"username":"rIm7AtU8_xc9lfMdKzOPsK86zS4DQHopKv34ctw_nl2xdDB5p1Tbc-Nv9u9kqUQRAAAAAGGcQel0aW5odnY=",
-        "urls":["stun:hk-turn1.xirsys.com",
-          "turn:hk-turn1.xirsys.com:80?transport=udp",
-          "turn:hk-turn1.xirsys.com:3478?transport=udp",
-          "turn:hk-turn1.xirsys.com:80?transport=tcp",
-          "turn:hk-turn1.xirsys.com:3478?transport=tcp",
-          "turns:hk-turn1.xirsys.com:443?transport=tcp",
-          "turns:hk-turn1.xirsys.com:5349?transport=tcp"],
-        "credential":"92be4386-4bfb-11ec-8d82-0242ac120004"}
+      {'url': 'stun:stun.l.google.com:19302'},
     ]
   };
 
@@ -105,21 +97,20 @@ class SignalingSocketIO {
       onCallingUser?.call(user);
 
       var newSession = await _createSession(user,
-          peerId: from,
-          sessionId: from,
-          media: 'video',
-          screenSharing: false);
+          peerId: from, sessionId: from, media: 'video', screenSharing: false);
       user.session = newSession;
       await newSession.pc?.setRemoteDescription(
           RTCSessionDescription(signal['sdp'], signal['type']));
       await _createAnswer(user);
       callingUsers.add(user);
     });
-    
+
     _observer('receive-accepted', (p0) {
       var signal = p0['signal'];
       var sessionId = p0['answerId'];
-      Session? session = callingUsers.firstWhereOrNull((element) => element.userId == sessionId)?.session;
+      Session? session = callingUsers
+          .firstWhereOrNull((element) => element.userId == sessionId)
+          ?.session;
       print('pc: ${session?.pc}');
       session?.pc?.setRemoteDescription(
           RTCSessionDescription(signal['sdp'], signal['type']));
@@ -130,13 +121,14 @@ class SignalingSocketIO {
     _observer('receive-user-leave', (p0) async {
       final userId = p0['userId'];
 
-      final user = callingUsers.firstWhereOrNull((element) => element.userId == userId);
+      final user =
+          callingUsers.firstWhereOrNull((element) => element.userId == userId);
       if (user == null) return;
+      user.dispose();
       onUserLeft?.call(user);
       if (user.session != null) {
         _closeSession(user.session!);
       }
-      user.dispose();
       callingUsers.remove(user);
       _localStream = await createStream('video');
     });
@@ -144,7 +136,8 @@ class SignalingSocketIO {
     _observer('receive-toggle-camera-audio', (p0) {
       final userId = p0['userId'];
       final switchTarget = p0['switchTarget'];
-      final user = callingUsers.firstWhereOrNull((element) => element.userId == userId);
+      final user =
+          callingUsers.firstWhereOrNull((element) => element.userId == userId);
       if (user == null) return;
       if (switchTarget == 'video') {
         user.changeVideoState(!user.video);
@@ -157,21 +150,26 @@ class SignalingSocketIO {
   void joinRoom() {
     _send('join-room', {'roomId': channelName, 'userName': userName});
   }
-  
+
   void getListUsers() {
     _observer('list-user-join', (p0) {
       final users = User.fromList(p0);
       if (users.isEmpty) return;
 
-      final me = users.firstWhereOrNull((element) => element.userName == userName);
-      if (me != null && callingUsers.firstWhereOrNull((element) => element.userName == userName) == null) {
+      final me =
+          users.firstWhereOrNull((element) => element.userName == userName);
+      if (me != null &&
+          callingUsers.firstWhereOrNull(
+                  (element) => element.userName == userName) ==
+              null) {
         callingUsers.add(me);
       }
 
       users.forEach((user) {
-
         // Skip existed user
-        if (callingUsers.firstWhereOrNull((element) => element.userName == user.userName) != null) return;
+        if (callingUsers.firstWhereOrNull(
+                (element) => element.userName == user.userName) !=
+            null) return;
 
         _createUserSession(user);
         callingUsers.add(user);
@@ -180,7 +178,8 @@ class SignalingSocketIO {
   }
 
   void _toggleMedia(bool video) {
-    _send('call-toggle-camera-audio', {'roomId': channelName, 'switchTarget': video ? 'video' : 'audio'});
+    _send('call-toggle-camera-audio',
+        {'roomId': channelName, 'switchTarget': video ? 'video' : 'audio'});
   }
 
   void switchCamera() {
@@ -226,6 +225,7 @@ class SignalingSocketIO {
     callingUsers.clear();
   }
 
+  //https://github.com/flutter-webrtc/flutter-webrtc/issues/653
   Future<MediaStream> createStream(String media) async {
     final userScreen = false;
     final Map<String, dynamic> mediaConstraints = {
@@ -281,6 +281,7 @@ class SignalingSocketIO {
         print('onIceCandidate: complete!');
         return;
       }
+      print('ICE candidate: ${candidate.candidate}');
     };
 
     pc.onIceConnectionState = (state) {};
@@ -328,8 +329,10 @@ class SignalingSocketIO {
       RTCSessionDescription s = await user.session!.pc!.createAnswer({});
       await user.session!.pc!.setLocalDescription(s);
 
-      _send('accepted-call', {'signal': {'sdp': s.sdp, 'type': s.type}, 'to': user.userId});
-
+      _send('accepted-call', {
+        'signal': {'sdp': s.sdp, 'type': s.type},
+        'to': user.userId
+      });
     } catch (e) {
       print(e.toString());
     }

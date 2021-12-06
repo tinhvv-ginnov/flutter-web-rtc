@@ -94,9 +94,9 @@ class _CallSampleState extends State<CallSample> {
     });
 
     _signaling?.onUserLeft = ((user) async {
-      _remoteRenderers[user]?.dispose();
       setState(() {
-        _remoteRenderers.remove(user);
+        final renderer = _remoteRenderers.remove(user);
+        renderer?.dispose();
       });
     });
 
